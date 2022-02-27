@@ -1,0 +1,408 @@
+---
+title: "Lab 4c. Deep Learning - iNaturalist"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F)
+```
+
+# Deep Learning with R / Python Exercises
+
+You'll first learn about Computer Vision techniques by going through the Chapter 5 lab exercises:
+
+- 5.1 Introduction to convnets
+  R: [html](./lab4c_5.1.intro-convnets.html), [Rmd](https://raw.githubusercontent.com/bbest/eds232-ml/main/lab4c_5.1.intro-convnets.Rmd) ; Python: [html](https://github.com/bbest/deep-learning-with-python-notebooks/blob/master/first_edition/5.1-introduction-to-convnets.ipynb), [ipynb](https://github.com/bbest/deep-learning-with-python-notebooks/raw/master/first_edition/5.1-introduction-to-convnets.ipynb)
+
+- 5.2 Training a convnet from scratch on a small dataset
+  R: [html](./lab4c_5.2.small-convnets.html), [Rmd](https://raw.githubusercontent.com/bbest/eds232-ml/main/lab4c_5.2.small-convnets.Rmd) ; Python: [html](https://github.com/bbest/deep-learning-with-python-notebooks/blob/master/first_edition/5.2-using-convnets-with-small-datasets.ipynb), [ipynb](https://github.com/bbest/deep-learning-with-python-notebooks/raw/master/first_edition/5.2-using-convnets-with-small-datasets.ipynb)
+
+The subsequent lab exercises meet the limits of using a CPU over a GPU, which is not available on `taylor.bren.ucsb.edu`. Here's as far as I was able to get for demonstration sake, but you're not expected to run this. You might want to try if you have personal computer with a GPU setup.
+
+- 5.3 Using a pretrained convnet
+  R: [html](./lab4c_5.3-using-a-pretrained-convnet.html), [Rmd](https://raw.githubusercontent.com/bbest/eds232-ml/main/lab4c_5.3-using-a-pretrained-convnet.Rmd) ; Python: [html](https://github.com/bbest/deep-learning-with-python-notebooks/blob/master/first_edition/5.3-using-a-pretrained-convnet.ipynb), [ipynb](https://github.com/bbest/deep-learning-with-python-notebooks/raw/master/first_edition/5.3-using-a-pretrained-convnet.ipynb)
+
+# iNaturalist
+
+The main lab that you'll turn in is to apply these techniques to a small subset of the iNaturalist species imagery. These data were downloaded from the links provided at [github.com/visipedia/inat_comp:2021/](https://github.com/visipedia/inat_comp/tree/master/2021). Of all the 10,000 species and many images for each from training (Train), training mini (Train Mini), validation (Val) and test images, you'll draw only from the Train Mini set of images:
+
+![](https://github.com/visipedia/inat_comp/raw/master/2021/assets/train_val_distribution.png)
+
+
+The first step is to move the images into directories for the variety of models. The `keras::`[`flow_images_from_directory()`](https://keras.rstudio.com/reference/flow_images_from_directory.html) expects the first argument `directory` to "contain one subdirectory per class". We are building models for two species `spp2` (binary) and ten species `spp10` (multiclass), plus we want to have `train` (n=30), `validation` (n=10) and `test` (n=10) images assigned to each. So we want a directory structure that looks something like this:
+
+```
+├── spp10
+│   ├── test
+│   │   ├── 01172_Animalia_Arthropoda_Insecta_Lepidoptera_Geometridae_Circopetes_obtusata
+│   │   │   ├── cfd17d74-c7aa-49a2-9417-0a4e6aa4170d.jpg
+│   │   │   ├── d6c2cf8f-89ef-40a2-824b-f51c85be030b.jpg
+│   │   │   └── ...[+n_img=8]
+│   │   ├── 06033_Plantae_Tracheophyta_Liliopsida_Asparagales_Orchidaceae_Epipactis_atrorubens
+│   │   │   └── ...[n_img=10]
+│   │   └── ...[+n_spp=8]
+│   ├── train
+│   │   ├── 01172_Animalia_Arthropoda_Insecta_Lepidoptera_Geometridae_Circopetes_obtusata
+│   │   │   └── ...[n_img=30]
+│   │   └── ...[+n_spp=9]
+│   └── validation
+│       ├── 01172_Animalia_Arthropoda_Insecta_Lepidoptera_Geometridae_Circopetes_obtusata
+│       │   └── ...[n_img=10]
+│       └── ...[+n_spp=9]
+└── spp2
+    ├── test
+    │   └── ...[n_spp=2]
+    ├── train
+    │   └── ...[n_spp=2]
+    └── validation
+        └── ...[n_spp=2]
+```
+
+```{r}
+librarian::shelf(
+  digest, dplyr, DT, glue, purrr, readr, stringr, tidyr, here, keras, tensorflow)
+
+# path to folder containing species directories of images
+dir_src  <- "/courses/EDS232/inaturalist-2021/train_mini"
+dir_dest <- here("inat/")
+dir.create(dir_dest, showWarnings = F)
+
+# get list of directories, one per species (n = 10,000 species)
+dirs_spp <- list.dirs(dir_src, recursive = F, full.names = T)
+n_spp <- length(dirs_spp)
+
+# set seed (for reproducible results) 
+# just before sampling (otherwise get different results)
+# based on your username (unique amongst class)
+Sys.info()[["user"]] %>% 
+  digest::digest2int() %>% 
+  set.seed()
+i10 <- sample(1:n_spp, 10)
+
+# show the 10 indices sampled of the 10,000 possible 
+i10
+
+# show the 10 species directory names
+basename(dirs_spp)[i10]
+
+# show the first 2 species directory names
+i2 <- i10[1:2]
+basename(dirs_spp)[i2]
+
+# setup data frame with source (src) and destination (dest) paths to images
+d <- tibble(
+  set     = c(rep("spp2", 2), rep("spp10", 10)),
+  dir_sp  = c(dirs_spp[i2], dirs_spp[i10]),
+  tbl_img = map(dir_sp, function(dir_sp){
+    tibble(
+      src_img = list.files(dir_sp, full.names = T),
+      subset  = c(rep("train", 30), rep("validation", 10), rep("test", 10))) })) %>% 
+  unnest(tbl_img) %>% 
+  mutate(
+    sp       = basename(dir_sp),
+    img      = basename(src_img),
+    dest_img = glue("{dir_dest}/{set}/{subset}/{sp}/{img}"))
+
+# show source and destination for first 10 rows of tibble
+d %>% 
+  select(src_img, dest_img)
+
+# iterate over rows, creating directory if needed and copying files 
+d %>% 
+  pwalk(function(src_img, dest_img, ...){
+    dir.create(dirname(dest_img), recursive = T, showWarnings = F)
+    file.copy(src_img, dest_img) })
+
+# uncomment to show the entire tree of your destination directory
+# system(glue("tree {dir_dest}"))
+```
+
+
+1. **2 Species (binary classification) - neural net**. Draw from [3.4 🍿 Movies (binary classification)](./lab4b_examples.html). You'll need to pre-process the images to be a consistent shape first though -- see 5.2.4 Data preprocessing.
+
+
+Data Processing for two species 
+```{r}
+# Set directories for the two species "train folder"
+train_dir_spp2 <- here("inat/spp2/train")
+
+validation_dir_spp2 <- here("inat/spp2/validation")
+
+
+# All images will be rescaled by 1/255
+train_datagen_spp2 <- image_data_generator(rescale = 1/255)
+validation_datagen_spp2 <- image_data_generator(rescale = 1/255)
+
+train_generator_spp2 <- flow_images_from_directory(
+  # This is the target directory
+  train_dir_spp2,
+  # This is the data generator
+  train_datagen_spp2,
+  # All images will be resized to 150x150
+  target_size = c(150, 150),
+  batch_size = 5,
+  # Since we use binary_crossentropy loss, we need binary labels
+  class_mode = "binary")
+
+validation_generator_spp2 <- flow_images_from_directory(
+  validation_dir_spp2,
+  validation_datagen_spp2,
+  target_size = c(150, 150),
+  batch_size = 5,
+  class_mode = "binary")
+```
+
+
+```{r}
+# Output from train generator 
+#batch <- generator_next(train_generator_spp2)
+#str(batch)
+```
+
+
+2 Species (binary classification) - neural net. 
+(Keras implementation)
+```{r}
+# Create binary classification model
+model_spp2 <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(150,150,3)) %>% 
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_flatten() %>%
+  layer_dense(units =  1, activation = "sigmoid")
+```
+
+
+Pick a loss function and an optimizer (5.2)
+```{r}
+# compile model
+model_spp2 %>% compile(
+  loss = "binary_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c("acc"))
+```
+
+
+```{r}
+  # fit model
+  history_spp2 <- model_spp2 %>% fit(
+    train_generator_spp2,
+    steps_per_epoch = 6,
+    epochs = 10,
+    validation_data = validation_generator_spp2,
+    validation_steps = 1)
+```
+
+
+plot history
+```{r}
+plot(history_spp2)
+```
+
+
+2. **2 Species (binary classification) - convolutional neural net**. Draw from the [dogs vs cats example](https://bbest.github.io/eds232-ml/lab4c_5.2.small-convnets.html).
+
+
+```{r}
+# Make convolutional neural net model
+model_spp2_conv <- keras_model_sequential() %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                input_shape = c(150, 150, 3)) %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 512, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+
+
+```{r}
+# Compile convolutional neural net model
+model_spp2_conv %>% compile(
+  loss = "binary_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c("acc"))
+```
+
+
+```{r}
+  # fit convolutional neural net model
+  history_spp2_conv <- model_spp2_conv %>% fit(
+    train_generator_spp2,
+    steps_per_epoch = 6,
+    epochs = 10,
+    validation_data = validation_generator_spp2,
+    validation_steps = 1)
+```
+
+
+Plot history for convolutional neural net model
+```{r}
+plot(history_spp2_conv)
+```
+
+# Show 
+```{r}
+history_spp2_conv
+```
+
+
+
+3. **10 Species (multi-class classification) - neural net**.  Draw from [3.5 📰 Newswires (multi-class classification)](./lab4b_examples.html).
+
+
+Data Processing for 10 species 
+```{r}
+# Set directories for the two species "train folder"
+train_dir_spp10 <- here("inat/spp10/train")
+
+validation_dir_spp10 <- here("inat/spp10/validation")
+
+
+# All images will be rescaled by 1/255
+train_datagen_spp10 <- image_data_generator(rescale = 1/255)
+validation_datagen_spp10 <- image_data_generator(rescale = 1/255)
+
+train_generator_spp10 <- flow_images_from_directory(
+  # This is the target directory
+  train_dir_spp10,
+  # This is the data generator
+  train_datagen_spp10,
+  # All images will be resized to 150x150
+  target_size = c(150, 150),
+  batch_size = 5,
+  # Use categorical labels
+  class_mode = "categorical")
+
+validation_generator_spp10 <- flow_images_from_directory(
+  validation_dir_spp10,
+  validation_datagen_spp10,
+  target_size = c(150, 150),
+  batch_size = 5,
+  class_mode = "categorical")
+```
+
+
+```{r}
+batch <- generator_next(train_generator_spp10)
+str(batch)
+```
+
+
+Building the network
+```{r}
+# I'm avoiding using small layers because they may act as information bottlenecks, permanently dropping relevant information. For this reason I will use larger layers (64 units).
+model_spp10 <- keras_model_sequential() %>% 
+  layer_dense(units = 64, activation = "relu", input_shape = c(150, 150, 3)) %>% 
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_flatten() %>% 
+  layer_dense(units = 10, activation = "softmax")
+```
+
+
+Compile model
+```{r}
+model_spp10 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+
+```{r}
+# fit model 
+  history_spp10 <- model_spp10 %>% fit(
+    train_generator_spp10,
+    steps_per_epoch = 5,
+    epochs = 30,
+    validation_data = validation_generator_spp10,
+    validation_steps = 1)
+```
+# History Plot
+```{r}
+plot(history_spp10)
+```
+
+# Accuracy metric and validation
+```{r}
+history_spp10
+```
+
+
+4. **10 Species (multi-class classification) - convolutional neural net**. Draw from [dogs vs cats example](https://bbest.github.io/eds232-ml/lab4c_5.2.small-convnets.html) and update necessary values to go from binary to mult-class classification.
+
+
+
+```{r}
+# Make convolutional neural net model for 10 species
+model_spp10_conv <- keras_model_sequential() %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                input_shape = c(150, 150, 3)) %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 512, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+
+
+```{r}
+# Compile convolutional neural net model
+model_spp10_conv %>% compile(
+  loss = "binary_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c("acc"))
+```
+
+
+```{r}
+# fit convolutional neural net model
+  history_spp10_conv <- model_spp10_conv %>% fit(
+    train_generator_spp10,
+    steps_per_epoch = 5,
+    epochs = 30,
+    validation_data = validation_generator_spp10,
+    validation_steps = 1)
+```
+
+# History plot
+```{r}
+# Plot the loss and accuracy of the model over the training and validation data during training
+plot(history_spp10_conv)
+```
+
+# Accuracy metric and validation
+```{r}
+history_spp10_conv
+```
+
+
+**Evaluate loss and accuracy on your test model results. Compare standard neural network and convolutional neural network results.**
+
+
+
+In your models, be sure to include the following:
+
+- Split the original images per species (n=50) into train (n=30), validate (n=10) and test (n=10). These are almost absurdly few files to feed into these complex deep learning models but will serve as a good learning example.
+
+- Include accuracy metric and validation in the fitting process and history plot.
+
+- Evaluate loss and accuracy on your test model results. Compare standard neural network and convolutional neural network results.
+
+# Submit Lab 4
+
+To submit Lab 4, please submit the path (`/Users/*`) on [taylor.bren.ucsb.edu](https://taylor.bren.ucsb.edu) to your iNaturalist Rmarkdown (`*.Rmd`) or Jupyter Notebook (`*.pynb`) file here:
+
+
+- [Submit Lab 4. iNaturalist](https://docs.google.com/forms/d/e/1FAIpQLSddHuLejY_V-PAIQOO19TLHAyyQRyTUSsfEwpgeJP-Jx4MClA/viewform?usp=sf_link){target="_blank"}

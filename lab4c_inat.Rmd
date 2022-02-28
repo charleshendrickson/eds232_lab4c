@@ -59,6 +59,7 @@ The first step is to move the images into directories for the variety of models.
         └── ...[n_spp=2]
 ```
 
+# Move images into directories for the various models.
 ```{r}
 librarian::shelf(
   digest, dplyr, DT, glue, purrr, readr, stringr, tidyr, here, keras, tensorflow)
@@ -122,7 +123,7 @@ d %>%
 1. **2 Species (binary classification) - neural net**. Draw from [3.4 🍿 Movies (binary classification)](./lab4b_examples.html). You'll need to pre-process the images to be a consistent shape first though -- see 5.2.4 Data preprocessing.
 
 
-Data Processing for two species 
+# Data Processing for two species 
 ```{r}
 # Set directories for the two species "train folder"
 train_dir_spp2 <- here("inat/spp2/train")
@@ -154,14 +155,8 @@ validation_generator_spp2 <- flow_images_from_directory(
 ```
 
 
-```{r}
-# Output from train generator 
-#batch <- generator_next(train_generator_spp2)
-#str(batch)
-```
 
-
-2 Species (binary classification) - neural net. 
+# 2 Species (binary classification) - neural net. 
 (Keras implementation)
 ```{r}
 # Create binary classification model
@@ -173,7 +168,7 @@ model_spp2 <- keras_model_sequential() %>%
 ```
 
 
-Pick a loss function and an optimizer (5.2)
+# Pick a loss function and an optimizer (5.2)
 ```{r}
 # compile model
 model_spp2 %>% compile(
@@ -182,27 +177,34 @@ model_spp2 %>% compile(
   metrics = c("acc"))
 ```
 
-
+# Fit the model to the data using the generator
 ```{r}
   # fit model
   history_spp2 <- model_spp2 %>% fit(
     train_generator_spp2,
     steps_per_epoch = 6,
-    epochs = 10,
+    epochs = 11,
     validation_data = validation_generator_spp2,
     validation_steps = 1)
 ```
 
 
-plot history
+# Plot the model
 ```{r}
 plot(history_spp2)
 ```
+# Accuracy metric and validation
+```{r}
+history_spp2
+```
+
+**My training accuracy decreases till 3 epochs, then increases over time till 8 epochs, where it reaches a maximum accuracy of nearly 80%. However, while my validation accuracy peaks at 5 epochs and then reaches a maximum (80%) at 11 epochs. My validation loss reaches a minimum at 5 epochs, while my training loss reaches its minimum after 9 epochs. Overall, I struggled finding the correct parameters for this model, which is why it performs so strangly.**
 
 
 2. **2 Species (binary classification) - convolutional neural net**. Draw from the [dogs vs cats example](https://bbest.github.io/eds232-ml/lab4c_5.2.small-convnets.html).
 
 
+# Make convolutional neural net model
 ```{r}
 # Make convolutional neural net model
 model_spp2_conv <- keras_model_sequential() %>% 
@@ -221,6 +223,7 @@ model_spp2_conv <- keras_model_sequential() %>%
 ```
 
 
+# Pick a loss function and an optimizer
 ```{r}
 # Compile convolutional neural net model
 model_spp2_conv %>% compile(
@@ -230,33 +233,36 @@ model_spp2_conv %>% compile(
 ```
 
 
+# Fit the model to the data using the generator
 ```{r}
   # fit convolutional neural net model
   history_spp2_conv <- model_spp2_conv %>% fit(
     train_generator_spp2,
-    steps_per_epoch = 6,
-    epochs = 10,
+    steps_per_epoch = 5,
+    epochs = 11,
     validation_data = validation_generator_spp2,
     validation_steps = 1)
 ```
 
 
-Plot history for convolutional neural net model
+# Plot convolutional neural net model
 ```{r}
 plot(history_spp2_conv)
 ```
 
-# Show 
+# Accuracy metric and validation 
 ```{r}
 history_spp2_conv
 ```
+
+**My training accuracy slowly increases over time, until it reaches nearly 72%, which isn't great. I had the accuracy much higher before with the same parameters, but restarting R must changed something with in images being processed. My validation accuracy decreases to a minimum at 5 epochs and reaches a maximum at 9 epochs of 60%. Again, not great. My training loss decreases linearly until it reaches a minimum of almost zero. However my validation increases to a maximum at 5 epochs and then quickly decreases to zero at 11 epochs.**
 
 
 
 3. **10 Species (multi-class classification) - neural net**.  Draw from [3.5 📰 Newswires (multi-class classification)](./lab4b_examples.html).
 
 
-Data Processing for 10 species 
+# Data Processing for 10 species 
 ```{r}
 # Set directories for the two species "train folder"
 train_dir_spp10 <- here("inat/spp10/train")
@@ -294,7 +300,7 @@ str(batch)
 ```
 
 
-Building the network
+# Building the network
 ```{r}
 # I'm avoiding using small layers because they may act as information bottlenecks, permanently dropping relevant information. For this reason I will use larger layers (64 units).
 model_spp10 <- keras_model_sequential() %>% 
@@ -305,7 +311,7 @@ model_spp10 <- keras_model_sequential() %>%
 ```
 
 
-Compile model
+# Compile model
 ```{r}
 model_spp10 %>% compile(
   optimizer = "rmsprop",
@@ -314,7 +320,7 @@ model_spp10 %>% compile(
 )
 ```
 
-
+# Fit Model 
 ```{r}
 # fit model 
   history_spp10 <- model_spp10 %>% fit(
@@ -334,11 +340,13 @@ plot(history_spp10)
 history_spp10
 ```
 
+**My training and validation loss had values of 1.117 and 5.706 repectively and reached a minimum after 8 epochs. My training accuracy increased linearly and reached a max of 68% after 30 epochs, while my validation accuracy only reached 40%. This could be due to the very little amount of data we are using to train the model.**
+
 
 4. **10 Species (multi-class classification) - convolutional neural net**. Draw from [dogs vs cats example](https://bbest.github.io/eds232-ml/lab4c_5.2.small-convnets.html) and update necessary values to go from binary to mult-class classification.
 
 
-
+# Make convolutional neural net model for 10 species
 ```{r}
 # Make convolutional neural net model for 10 species
 model_spp10_conv <- keras_model_sequential() %>% 
@@ -356,7 +364,7 @@ model_spp10_conv <- keras_model_sequential() %>%
   layer_dense(units = 1, activation = "sigmoid")
 ```
 
-
+# Pick loss and optimizer 
 ```{r}
 # Compile convolutional neural net model
 model_spp10_conv %>% compile(
@@ -366,6 +374,7 @@ model_spp10_conv %>% compile(
 ```
 
 
+# Fit the model
 ```{r}
 # fit convolutional neural net model
   history_spp10_conv <- model_spp10_conv %>% fit(
@@ -387,9 +396,10 @@ plot(history_spp10_conv)
 history_spp10_conv
 ```
 
+**My training and validation stayed constant at 0.33. I couldn't figure out the parameters to fix it. My training accuracy also remained constant for 30 epochs and was near 0%. I recieved better results initially with these same parameters, however after playing with the parameters some more, my model wouldn't return to the same accuracy as I had initially achieved. Not sure why.**
 
-**Evaluate loss and accuracy on your test model results. Compare standard neural network and convolutional neural network results.**
 
+**Overall my standard neural networks achieved better loss and accuracy results in both the 2 species and 10 species tests. Both my convolutional neural networks were plagued by a strange bug where I would find a decent set of parameters for the steps per epoch, epochs, and validation steps, but after playing with them a little I would often receive worse results than before, even after changing back to the original 'decent enough' parameters.** 
 
 
 In your models, be sure to include the following:
